@@ -3,8 +3,10 @@ import torch.nn as nn
 import warnings
 import numpy as np
 
-
 class FC(nn.Module):
+    """
+    A fully connected neural network for FC from "Uncovering doubly charged scalars with dominant three-body decays using machine learning"
+    """
     def __init__(self):
         super(FC, self).__init__()
         self.fc = nn.Sequential(
@@ -28,10 +30,14 @@ class FC(nn.Module):
         )
         
     def forward(self, x):
+
         x = self.fc(x)
         return x
-    
-class FC_Reg(torch.nn.Module):
+
+class FC_Reg(nn.Module):
+    """
+    The FC Network with added regularization layers.
+    """
     def __init__(self, dropout=0.5):
         super(FC_Reg, self).__init__()
         self.mlp = nn.Sequential(
@@ -79,81 +85,92 @@ class FC_Reg(torch.nn.Module):
     
     def forward(self, x):
         return self.mlp(x)
-    
-class eMLP(torch.nn.Module):
-    def __init__(self, input_dim=106, output_dim=2, hidden_dim=200, dropout=0.3):
+
+class eMLP(nn.Module):
+    """
+    An encoder-decoder Multi-Layer Perceptron for classification.
+
+    The architecture consists of an encoder and decoder with dropout for regularization.
+    We use all 106 kinematic variables for the classification task.
+
+    """
+    def __init__(self, input_dim=106, output_dim=2, hidden_dim=2000, dropout=0.3):
         super(eMLP, self).__init__()
 
-        # Encoder
-        self.encoder = torch.nn.Sequential(
-            torch.nn.Linear(input_dim, hidden_dim),
-            torch.nn.BatchNorm1d(hidden_dim),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(dropout),
+        self.encoder = nn.Sequential(
+            nn.Linear(input_dim, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
 
+            nn.Linear(hidden_dim, hidden_dim // 4),
+            nn.BatchNorm1d(hidden_dim // 4),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
 
-            torch.nn.Linear(int(hidden_dim), int(hidden_dim / 4)),
-            torch.nn.BatchNorm1d(int(hidden_dim / 4)),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(dropout),
-
-            torch.nn.Linear(int(hidden_dim / 4), int(hidden_dim / 8)),
-            torch.nn.BatchNorm1d(int(hidden_dim / 8)),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(dropout)
+            nn.Linear(hidden_dim // 4, hidden_dim // 8),
+            nn.BatchNorm1d(hidden_dim // 8),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout)
         )
 
-        # Decoder
-        self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(int(hidden_dim/8), int(hidden_dim / 4)),
-            torch.nn.BatchNorm1d(int(hidden_dim / 4)),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(dropout),
+        self.decoder = nn.Sequential(
+            nn.Linear(hidden_dim // 8, hidden_dim // 4),
+            nn.BatchNorm1d(hidden_dim // 4),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
 
-
-            torch.nn.Linear(int(hidden_dim / 4), hidden_dim),
-            torch.nn.BatchNorm1d(hidden_dim),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(dropout),
+            nn.Linear(hidden_dim // 4, hidden_dim),
+            nn.BatchNorm1d(hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Dropout(dropout),
         )
 
-        self.output_network = torch.nn.Linear(hidden_dim, output_dim)
+        self.output_network = nn.Linear(hidden_dim, output_dim)
     
     def forward(self, x):
         x = self.encoder(x)
         x = self.decoder(x)
         x = self.output_network(x)
         return x
-    
+
 class TransformerEncoder(nn.Module):
-    def __init__(self, num_layers=6, d_model = 128, nhead = 8, dim_feedforward = 256, input_dim = 106, output_dim = 2, dropout = 0.3):
+    """
+    A Transformer encoder model for sequence classification.
+
+    The architecture consists of transformer encoder layers followed by fully connected layers for output.
+
+    """
+    def __init__(self, num_layers=6, d_model=128, nhead=8, dim_feedforward=256, input_dim=106, output_dim=2, dropout=0.3):
         super(TransformerEncoder, self).__init__()
 
         self.input_dim = input_dim
         self.d_model = d_model
         self.dropout = dropout
         self.padding = self.d_model - self.input_dim
-        assert self.padding > 0, f"Padding Error: Number bigger or equal then 0 expected but got {self.padding} as padding."
+        assert self.padding > 0, f"Padding Error: Padding should be greater than 0 but got {self.padding}."
 
-        self.encoder_layer = torch.nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward,dropout=dropout,batch_first=True)
-        self.transformer_encoder = torch.nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
+        self.encoder_layer = nn.TransformerEncoderLayer(d_model=d_model, nhead=nhead, dim_feedforward=dim_feedforward, dropout=dropout, batch_first=True)
+        self.transformer_encoder = nn.TransformerEncoder(self.encoder_layer, num_layers=num_layers)
 
-        self.output = torch.nn.Sequential(
-            torch.nn.Linear(d_model,int(d_model/2)),
-            torch.nn.BatchNorm1d(int(d_model/2)),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(p=self.dropout),
+        self.output = nn.Sequential(
+            nn.Linear(d_model, d_model // 2),
+            nn.BatchNorm1d(d_model // 2),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=self.dropout),
 
-            torch.nn.Linear(int(d_model/2),d_model),
-            torch.nn.BatchNorm1d(d_model),
-            torch.nn.ReLU(inplace=True),
-            torch.nn.Dropout(p=self.dropout),
+            nn.Linear(d_model // 2, d_model),
+            nn.BatchNorm1d(d_model),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=self.dropout),
 
-            torch.nn.Linear(d_model,output_dim)
+            nn.Linear(d_model, output_dim)
         )
 
     def forward(self, kin):
-        x = torch.nn.functional.pad(kin, (0,self.padding))
+
+        x = nn.functional.pad(kin, (0, self.padding))
         encoding = self.transformer_encoder(x)
         out = self.output(encoding)
         return out
+

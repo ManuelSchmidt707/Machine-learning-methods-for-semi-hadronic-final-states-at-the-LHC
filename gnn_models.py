@@ -1,16 +1,23 @@
 import torch
 import torch.nn as nn
-
 import torch_geometric
-
 from torch_geometric.nn import GCNConv, global_mean_pool, GATv2Conv
 from torch_geometric.utils import add_self_loops
 import torch.nn.functional as F
 
+class GCN(torch.nn.Module):
+    """
+    A Graph Convolutional Network (GCN) model with configurable layers and dropout.
 
-class GCN_model_v2(torch.nn.Module):
-    def __init__(self, input_dim=10, hidden_dim=238, output_dim = 2, num_layers = 2, dropout = 0.3):
-        super(GCN_model_v2, self).__init__()
+    Parameters:
+        input_dim (int): Dimension of input features. Usually 10: E,px,py,pz,pT,ent,phi,C,N,L
+        hidden_dim (int): Dimension of hidden layers.
+        output_dim (int): Dimension of output features (Number Classes).
+        num_layers (int): Number of GCN layers.
+        dropout (float): Dropout rate.
+    """
+    def __init__(self, input_dim=10, hidden_dim=238, output_dim=2, num_layers=1, dropout=0.3):
+        super(GCN, self).__init__()
         layers = []
         layers.append((GCNConv(input_dim, hidden_dim), 'x, edge_index -> x'))
         layers.append(nn.ReLU())
@@ -19,13 +26,12 @@ class GCN_model_v2(torch.nn.Module):
             layers.append(nn.ReLU())
         
         self.layers = torch_geometric.nn.Sequential('x, edge_index', layers)
-
         self.output_network = torch.nn.Sequential(
-        torch.nn.Linear(hidden_dim, hidden_dim),
-        torch.nn.BatchNorm1d(hidden_dim),
-        torch.nn.ReLU(),
-        torch.nn.Dropout(dropout),
-        torch.nn.Linear(hidden_dim, output_dim)
+            torch.nn.Linear(hidden_dim, hidden_dim),
+            torch.nn.BatchNorm1d(hidden_dim),
+            torch.nn.ReLU(),
+            torch.nn.Dropout(dropout),
+            torch.nn.Linear(hidden_dim, output_dim)
         )
 
     def forward(self, data):
@@ -35,16 +41,29 @@ class GCN_model_v2(torch.nn.Module):
         x = self.output_network(x)
         return x
     
-class GATv2_model(torch.nn.Module):
-    def __init__(self, input_dim, hidden_dim, heads = 1, output_dim = 2, num_layers = 2, negative_slope = 0.2, dropout = 0.3, output_hidden_dim = -1):
-        super(GATv2_model, self).__init__()
+class GAT(torch.nn.Module):
+    """
+    A Graph Attention Network (GATv2) model with configurable layers and dropout.
+
+    Parameters:
+        input_dim (int): Dimension of input features. Usually 10: E,px,py,pz,pT,ent,phi,C,N,L
+        hidden_dim (int): Dimension of hidden layers.
+        heads (int): Number of attention heads.
+        output_dim (int): Dimension of output features. Number of Classes.
+        num_layers (int): Number of GAT layers.
+        negative_slope (float): LeakyReLU angle of the negative slope.
+        dropout (float): Dropout rate.
+        output_hidden_dim (int): Dimension of output hidden layer, default is -1 which sets it to hidden_dim * heads.
+    """
+    def __init__(self, input_dim, hidden_dim, heads=1, output_dim=2, num_layers=2, negative_slope=0.2, dropout=0.3, output_hidden_dim=-1):
+        super(GAT, self).__init__()
         if output_hidden_dim == -1:
-            output_hidden_dim = hidden_dim*heads
+            output_hidden_dim = hidden_dim * heads
         layers = []
-        layers.append((GATv2Conv(input_dim, hidden_dim, heads=heads, negative_slope =negative_slope, dropout= dropout), 'x, edge_index -> x'))
+        layers.append((GATv2Conv(input_dim, hidden_dim, heads=heads, negative_slope=negative_slope, dropout=dropout), 'x, edge_index -> x'))
         layers.append(nn.ReLU())
         for i in range(num_layers-1):
-            layers.append((GATv2Conv(heads * hidden_dim, hidden_dim, heads=heads, negative_slope =negative_slope, dropout= dropout), 'x, edge_index -> x'))
+            layers.append((GATv2Conv(heads * hidden_dim, hidden_dim, heads=heads, negative_slope=negative_slope, dropout=dropout), 'x, edge_index -> x'))
             layers.append(nn.ReLU())
         
         self.output_network = torch.nn.Sequential(
@@ -57,7 +76,7 @@ class GATv2_model(torch.nn.Module):
             torch.nn.ReLU(),
             torch.nn.Dropout(dropout),
             torch.nn.Linear(output_hidden_dim, output_dim)
-            )
+        )
 
         self.layers = torch_geometric.nn.Sequential('x, edge_index', layers)
 
@@ -69,6 +88,13 @@ class GATv2_model(torch.nn.Module):
         return x
     
 class ParticleStaticEdgeConv(torch_geometric.nn.MessagePassing):
+    """
+    Static Edge Convolution for particle cloud learning with configurable layers.
+
+    Parameters:
+        in_channels (int): Number of input channels.
+        out_channels (list of int): List containing the dimensions of the MLP layers.
+    """
     def __init__(self, in_channels, out_channels):
         super(ParticleStaticEdgeConv, self).__init__(aggr='max')
         self.mlp = torch.nn.Sequential(
@@ -84,20 +110,25 @@ class ParticleStaticEdgeConv(torch_geometric.nn.MessagePassing):
         )
 
     def forward(self, x, edge_index, k):
-        
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x)
 
     def message(self, edge_index, x_i, x_j):
-        tmp = torch.cat([x_i, x_j - x_i], dim = 1)
-
+        tmp = torch.cat([x_i, x_j - x_i], dim=1)
         out_mlp = self.mlp(tmp)
-
         return out_mlp
 
     def update(self, aggr_out):
         return aggr_out
 
 class ParticleDynamicEdgeConv(ParticleStaticEdgeConv):
+    """
+    Dynamic Edge Convolution for particle cloud learning with k-nearest neighbors.
+
+    Args:
+        in_channels (int): Number of input channels.
+        out_channels (list of int): List containing the dimensions of the MLP layers.
+        k (int): Number of nearest neighbors.
+    """
     def __init__(self, in_channels, out_channels, k=7):
         super(ParticleDynamicEdgeConv, self).__init__(in_channels, out_channels)
         self.k = k
@@ -108,6 +139,17 @@ class ParticleDynamicEdgeConv(ParticleStaticEdgeConv):
         self.act = torch.nn.ReLU()
 
     def forward(self, pts, fts, batch=None):
+        """
+        Forward pass of the dynamic edge convolution.
+
+        Args:
+            pts (Tensor): Node position matrix.
+            fts (Tensor): Node feature matrix.
+            batch (Tensor, optional): Batch vector.
+
+        Returns:
+            Tensor: Output node features. Used to construct Graph for next layer.
+        """
         edges = torch_geometric.nn.knn_graph(pts, self.k, batch, loop=False, flow=self.flow)
         aggrg = super(ParticleDynamicEdgeConv, self).forward(fts, edges, self.k)
         x = self.skip_mlp(fts)
@@ -128,11 +170,16 @@ settings = {
 }
 
 class ParticleNet(torch.nn.Module):
+    """
+    ParticleNet model for particle cloud learning with dynamic edge convolutions and fully connected layers.
+    Follows https://github.com/Jai2500/particlenet
 
+    Parameters:
+        settings (dict): Dictionary containing model hyperparameters. See above.
+    """
     def __init__(self, settings):
         super().__init__()
         previous_output_shape = settings['input_features']
-
         self.input_bn = torch_geometric.nn.BatchNorm(settings['input_features'])
 
         self.conv_process = torch.nn.ModuleList()
@@ -140,8 +187,6 @@ class ParticleNet(torch.nn.Module):
             K, channels = layer_param
             self.conv_process.append(ParticleDynamicEdgeConv(previous_output_shape, channels, k=K))
             previous_output_shape = channels[-1]
-
-
 
         self.fc_process = torch.nn.ModuleList()
         for layer_idx, layer_param in enumerate(settings['fc_params']):
@@ -154,11 +199,11 @@ class ParticleNet(torch.nn.Module):
             self.fc_process.append(seq)
             previous_output_shape = units
 
-
         self.output_mlp_linear = torch.nn.Linear(previous_output_shape, settings['output_classes'])
         self.output_activation = torch.nn.Softmax(dim=1)
 
     def forward(self, batch):
+
         fts = self.input_bn(batch.x)
         pts = batch.pos
 
@@ -174,3 +219,4 @@ class ParticleNet(torch.nn.Module):
         x = self.output_mlp_linear(x)
         x = self.output_activation(x)
         return x
+
